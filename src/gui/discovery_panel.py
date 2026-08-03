@@ -103,7 +103,7 @@ class DiscoveryPanel(QWidget):
             f"Listening on {adapter_name} for LLDP/CDP..."
         )
         self.discover_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
 
     def set_ready(self) -> None:
         """Return the panel to its idle state."""
