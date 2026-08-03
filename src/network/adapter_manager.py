@@ -84,20 +84,25 @@ def get_network_adapters() -> list[NetworkAdapter]:
                 -ErrorAction SilentlyContinue
 
             [PSCustomObject]@{
-                Name                 = $adapter.Name
-                InterfaceDescription = $adapter.InterfaceDescription
-                ifIndex              = $adapter.ifIndex
-                Status               = $adapter.Status
-                LinkSpeed            = $adapter.LinkSpeed
-                MacAddress           = $adapter.MacAddress
-                IPv4Address          = $ipConfig.IPv4Address.IPAddress |
-                                       Select-Object -First 1
-                PrefixLength         = $ipConfig.IPv4Address.PrefixLength |
-                                       Select-Object -First 1
-                Gateway              = $ipConfig.IPv4DefaultGateway.NextHop |
-                                       Select-Object -First 1
-                Dhcp                 = $dhcp.Dhcp
-                DnsServers           = @($dns.ServerAddresses)
+                 Name                 = $adapter.Name
+                 InterfaceDescription = $adapter.InterfaceDescription
+                 ifIndex              = $adapter.ifIndex
+                 Status               = $adapter.Status
+                 LinkSpeed            = $adapter.LinkSpeed
+                 MacAddress           = $adapter.MacAddress
+                 IPv4Address          = $ipConfig.IPv4Address.IPAddress |
+                                         Select-Object -First 1
+                 PrefixLength         = $ipConfig.IPv4Address.PrefixLength |
+                                         Select-Object -First 1
+                 Gateway              = $ipConfig.IPv4DefaultGateway.NextHop |
+                                         Select-Object -First 1
+                 Dhcp                 = if ($null -eq $dhcp) {
+                                            $null
+                                        }
+                                        else {
+                                            $dhcp.Dhcp.ToString()
+                                        }
+                 DnsServers           = @($dns.ServerAddresses)
             }
         }
 
@@ -191,4 +196,4 @@ def get_network_adapters() -> list[NetworkAdapter]:
             )
         )
 
-    return adapters
+    return adapters 
