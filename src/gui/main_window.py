@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.gui.adapter_panel import AdapterPanel
+from src.gui.discovery_panel import DiscoveryPanel
 
 
 class MainWindow(QMainWindow):
@@ -31,6 +32,7 @@ class MainWindow(QMainWindow):
         )
 
         self.adapter_panel = AdapterPanel()
+        self.discovery_panel = DiscoveryPanel()
 
     def create_layout(self) -> None:
         """Arrange the main-window controls."""
@@ -41,6 +43,7 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(self.title_label)
         main_layout.addWidget(self.adapter_panel)
+        main_layout.addWidget(self.discovery_panel)
         main_layout.addStretch()
 
         central_widget = QWidget()
