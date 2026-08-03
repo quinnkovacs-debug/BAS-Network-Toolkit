@@ -39,9 +39,7 @@ class MainWindow(QMainWindow):
         """Create the controls displayed in the window."""
 
         self.title_label = QLabel("BAS Network Toolkit")
-        self.title_label.setStyleSheet(
-            "font-size: 24px; font-weight: bold;"
-        )
+        self.title_label.setStyleSheet("font-size: 24px; font-weight: bold;")
 
         self.description_label = QLabel(
             "Select the network adapter connected to the customer network."
@@ -56,6 +54,13 @@ class MainWindow(QMainWindow):
         self.speed_value = QLabel("—")
         self.mac_value = QLabel("—")
         self.index_value = QLabel("—")
+        self.ipv4_value = QLabel("—")
+        self.prefix_value = QLabel("—")
+        self.subnet_value = QLabel("—")
+        self.gateway_value = QLabel("—")
+        self.dhcp_value = QLabel("—")
+        self.dns_value = QLabel("—")
+        self.dns_value.setWordWrap(True)
 
     def create_layout(self) -> None:
         """Arrange the controls in the window."""
@@ -69,6 +74,12 @@ class MainWindow(QMainWindow):
         details_layout.addRow("Link speed:", self.speed_value)
         details_layout.addRow("MAC address:", self.mac_value)
         details_layout.addRow("Interface index:", self.index_value)
+        details_layout.addRow("IPv4 address:", self.ipv4_value)
+        details_layout.addRow("Prefix length:", self.prefix_value)
+        details_layout.addRow("Subnet mask:", self.subnet_value)
+        details_layout.addRow("Default gateway:", self.gateway_value)
+        details_layout.addRow("DHCP:", self.dhcp_value)
+        details_layout.addRow("DNS servers:", self.dns_value)
 
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(25, 25, 25, 25)
@@ -91,9 +102,7 @@ class MainWindow(QMainWindow):
         """Connect user actions to application functions."""
 
         self.refresh_button.clicked.connect(self.refresh_adapters)
-        self.adapter_selector.currentIndexChanged.connect(
-            self.update_adapter_details
-        )
+        self.adapter_selector.currentIndexChanged.connect(self.update_adapter_details)
 
     def refresh_adapters(self) -> None:
         """Reload the network-adapter list from Windows."""
@@ -133,9 +142,7 @@ class MainWindow(QMainWindow):
         """Prefer a connected Ethernet adapter when possible."""
 
         for index, adapter in enumerate(self.adapters):
-            adapter_text = (
-                f"{adapter.name} {adapter.description}"
-            ).lower()
+            adapter_text = (f"{adapter.name} {adapter.description}").lower()
 
             is_connected = adapter.status.lower() == "up"
             appears_wired = (
@@ -166,6 +173,17 @@ class MainWindow(QMainWindow):
         self.speed_value.setText(adapter.link_speed)
         self.mac_value.setText(adapter.mac_address)
         self.index_value.setText(str(adapter.interface_index))
+        self.ipv4_value.setText(adapter.ipv4_address)
+
+        if adapter.prefix_length is None:
+            self.prefix_value.setText("Not available")
+        else:
+            self.prefix_value.setText(f"/{adapter.prefix_length}")
+
+        self.subnet_value.setText(adapter.subnet_mask)
+        self.gateway_value.setText(adapter.gateway)
+        self.dhcp_value.setText(adapter.dhcp_display)
+        self.dns_value.setText(adapter.dns_display)
 
     def clear_adapter_details(self) -> None:
         """Clear the adapter-information fields."""
@@ -174,6 +192,12 @@ class MainWindow(QMainWindow):
         self.speed_value.setText("—")
         self.mac_value.setText("—")
         self.index_value.setText("—")
+        self.ipv4_value.setText("—")
+        self.prefix_value.setText("—")
+        self.subnet_value.setText("—")
+        self.gateway_value.setText("—")
+        self.dhcp_value.setText("—")
+        self.dns_value.setText("—")
 
 
 def main() -> int:
