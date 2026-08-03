@@ -1,4 +1,6 @@
-"""Parse useful fields from an LLDP Ethernet frame."""
+"""
+Decodes LLDP packets into Python objects.
+"""
 
 from dataclasses import dataclass
 from ipaddress import ip_address
