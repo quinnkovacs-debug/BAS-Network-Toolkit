@@ -8,6 +8,7 @@ from src.network.discovery_listener import (
     listen_for_discovery,
 )
 from src.network.adapter_manager import NetworkAdapter
+import threading
 
 
 class DiscoveryWorker(QObject):
@@ -15,6 +16,7 @@ class DiscoveryWorker(QObject):
 
     completed = Signal(object)
     timed_out = Signal()
+    cancelled = Signal()
     failed = Signal(str)
     finished = Signal()
 
@@ -27,6 +29,7 @@ class DiscoveryWorker(QObject):
 
         self.adapter = adapter
         self.timeout_seconds = timeout_seconds
+        self.stop_event = threading.Event()
 
     @Slot()
     def run(self) -> None:
@@ -41,9 +44,12 @@ class DiscoveryWorker(QObject):
             result: DiscoveryResult | None = listen_for_discovery(
                 capture_interface=capture_interface,
                 timeout_seconds=self.timeout_seconds,
+                stop_event=self.stop_event,
             )
 
-            if result is None:
+            if self.stop_event.is_set():
+                self.cancelled.emit()
+            elif result is None:
                 self.timed_out.emit()
             else:
                 self.completed.emit(result)
@@ -53,3 +59,8 @@ class DiscoveryWorker(QObject):
 
         finally:
             self.finished.emit()
+
+    def request_stop(self) -> None:
+        """Request cancellation of the active capture."""
+
+        self.stop_event.set()

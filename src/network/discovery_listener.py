@@ -4,10 +4,14 @@ Captures LLDP and CDP packets.
 
 from dataclasses import dataclass
 
-from scapy.all import Ether, Packet, sniff
+from scapy.all import Ether, Packet
 
 from src.network.capture_interface import normalize_mac
 from src.network.lldp_parser import LldpNeighbor, parse_lldp_packet
+import threading
+import time
+
+from scapy.all import AsyncSniffer, Ether, Packet
 
 
 LLDP_DESTINATION = "01:80:c2:00:00:0e"
@@ -59,29 +63,62 @@ def identify_protocol(packet: Packet) -> str:
 def listen_for_discovery(
     capture_interface: str,
     timeout_seconds: int = 60,
+    stop_event: threading.Event | None = None,
 ) -> DiscoveryResult | None:
     """Wait for one LLDP or CDP packet.
 
     Args:
         capture_interface: Npcap device path.
         timeout_seconds: Maximum time to listen.
+        stop_event: Optional event used to cancel the capture.
 
     Returns:
-        Parsed discovery result, or ``None`` when the capture times out.
+        Parsed discovery result, or ``None`` after timeout or cancellation.
     """
 
-    packets = sniff(
+    if stop_event is None:
+        stop_event = threading.Event()
+
+    captured_packets: list[Packet] = []
+    packet_received = threading.Event()
+
+    def handle_packet(packet: Packet) -> None:
+        """Store the first discovery packet received."""
+
+        captured_packets.append(packet)
+        packet_received.set()
+
+    sniffer = AsyncSniffer(
         iface=capture_interface,
-        timeout=timeout_seconds,
         count=1,
+        store=False,
         lfilter=is_discovery_packet,
-        store=True,
+        prn=handle_packet,
     )
 
-    if not packets:
+    deadline = time.monotonic() + timeout_seconds
+
+    try:
+        sniffer.start()
+
+        while True:
+            if packet_received.wait(timeout=0.1):
+                break
+
+            if stop_event.is_set():
+                break
+
+            if time.monotonic() >= deadline:
+                break
+
+    finally:
+        if sniffer.running:
+            sniffer.stop()
+
+    if not captured_packets:
         return None
 
-    packet = packets[0]
+    packet = captured_packets[0]
     protocol = identify_protocol(packet)
 
     ethernet_type: int | None = None

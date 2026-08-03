@@ -13,6 +13,7 @@ from PySide6.QtCore import QThread
 
 from src.controllers.discovery_worker import DiscoveryWorker
 from src.network.discovery_listener import DiscoveryResult
+from PySide6.QtGui import QCloseEvent
 
 
 class MainWindow(QMainWindow):
@@ -133,6 +134,10 @@ class MainWindow(QMainWindow):
             self.clear_discovery_thread
         )
 
+        self.discovery_worker.cancelled.connect(
+            self.discovery_panel.set_cancelled
+        )
+
         self.discovery_thread.start()
 
 
@@ -163,11 +168,13 @@ class MainWindow(QMainWindow):
 
 
     def stop_discovery(self) -> None:
-        """Request that the current discovery operation stop."""
+        """Request cancellation of the current discovery operation."""
 
-        self.discovery_panel.set_error(
-            "Stopping an active capture is not implemented yet."
-        )
+        if self.discovery_worker is None:
+            return
+
+        self.discovery_panel.set_stopping()
+        self.discovery_worker.request_stop()
 
 
     def clear_discovery_thread(self) -> None:
@@ -175,3 +182,21 @@ class MainWindow(QMainWindow):
 
         self.discovery_thread = None
         self.discovery_worker = None
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Stop active discovery cleanly before closing."""
+
+        if self.discovery_worker is None or self.discovery_thread is None:
+            event.accept()
+            return
+
+        self.discovery_panel.set_stopping()
+        self.discovery_worker.request_stop()
+
+        if self.discovery_thread.wait(3000):
+            event.accept()
+        else:
+            event.ignore()
+            self.discovery_panel.set_error(
+                "Discovery did not stop within 3 seconds."
+            )

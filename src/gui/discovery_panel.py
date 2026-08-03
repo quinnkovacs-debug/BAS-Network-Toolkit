@@ -103,7 +103,7 @@ class DiscoveryPanel(QWidget):
             f"Listening on {adapter_name} for LLDP/CDP..."
         )
         self.discover_button.setEnabled(False)
-        self.stop_button.setEnabled(False)
+        self.stop_button.setEnabled(True)
 
     def set_ready(self) -> None:
         """Return the panel to its idle state."""
@@ -163,5 +163,19 @@ class DiscoveryPanel(QWidget):
         self.source_mac_value.setText(source_mac)
         self.system_description_value.setText(system_description)
 
+        self.discover_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+
+    def set_stopping(self) -> None:
+        """Show that cancellation has been requested."""
+
+        self.status_value.setText("Stopping discovery...")
+        self.stop_button.setEnabled(False)
+
+
+    def set_cancelled(self) -> None:
+        """Show that discovery was cancelled."""
+
+        self.status_value.setText("Discovery stopped.")
         self.discover_button.setEnabled(True)
         self.stop_button.setEnabled(False)
