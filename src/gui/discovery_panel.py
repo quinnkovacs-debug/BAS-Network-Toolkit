@@ -16,6 +16,8 @@ class DiscoveryPanel(QWidget):
 
     discover_requested = Signal()
     stop_requested = Signal()
+    copy_requested = Signal()
+    save_requested = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -47,6 +49,11 @@ class DiscoveryPanel(QWidget):
         self.discover_button = QPushButton("Discover")
         self.stop_button = QPushButton("Stop")
         self.stop_button.setEnabled(False)
+        self.copy_button = QPushButton("Copy Results")
+        self.copy_button.setEnabled(False)
+
+        self.save_button = QPushButton("Save Report")
+        self.save_button.setEnabled(False)
 
     def create_layout(self) -> None:
         """Arrange the discovery-panel controls."""
@@ -74,6 +81,8 @@ class DiscoveryPanel(QWidget):
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.discover_button)
         button_layout.addWidget(self.stop_button)
+        button_layout.addWidget(self.copy_button)
+        button_layout.addWidget(self.save_button)
         button_layout.addStretch()
 
         main_layout = QVBoxLayout()
@@ -94,6 +103,13 @@ class DiscoveryPanel(QWidget):
         )
         self.stop_button.clicked.connect(
             self.stop_requested.emit
+        )
+        self.copy_button.clicked.connect(
+            self.copy_requested.emit
+        )
+
+        self.save_button.clicked.connect(
+            self.save_requested.emit
         )
 
     def set_listening(self, adapter_name: str) -> None:
@@ -139,6 +155,8 @@ class DiscoveryPanel(QWidget):
         self.protocol_value.setText("—")
         self.source_mac_value.setText("—")
         self.system_description_value.setText("—")
+        self.copy_button.setEnabled(False)
+        self.save_button.setEnabled(False)
 
     def display_lldp_result(
         self,
@@ -165,6 +183,8 @@ class DiscoveryPanel(QWidget):
 
         self.discover_button.setEnabled(True)
         self.stop_button.setEnabled(False)
+        self.copy_button.setEnabled(True)
+        self.save_button.setEnabled(True)
 
     def set_stopping(self) -> None:
         """Show that cancellation has been requested."""

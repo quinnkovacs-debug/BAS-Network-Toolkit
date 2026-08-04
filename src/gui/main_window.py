@@ -1,8 +1,13 @@
 """Main application window for the BAS Network Toolkit."""
 
+from pathlib import Path
+
 from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QVBoxLayout,
     QWidget,
 )
@@ -14,6 +19,8 @@ from PySide6.QtCore import QThread
 from src.controllers.discovery_worker import DiscoveryWorker
 from src.network.discovery_listener import DiscoveryResult
 from PySide6.QtGui import QCloseEvent
+from src.reports.network_report import build_network_report
+from datetime import datetime
 
 
 class MainWindow(QMainWindow):
@@ -24,6 +31,7 @@ class MainWindow(QMainWindow):
 
         self.discovery_thread: QThread | None = None
         self.discovery_worker: DiscoveryWorker | None = None
+        self.last_discovery_result: DiscoveryResult | None = None
 
         self.setWindowTitle("BAS Network Toolkit")
         self.resize(850, 500)
@@ -71,6 +79,14 @@ class MainWindow(QMainWindow):
             self.stop_discovery
         )
 
+        self.discovery_panel.copy_requested.connect(
+            self.copy_results
+        )
+
+        self.discovery_panel.save_requested.connect(
+            self.save_report
+        )
+
 
     def start_discovery(self) -> None:
         """Start LLDP/CDP discovery for the selected adapter."""
@@ -88,7 +104,7 @@ class MainWindow(QMainWindow):
                 "The selected adapter is not connected."
             )
             return
-
+        self.last_discovery_result = None
         self.discovery_panel.clear_results()
         self.discovery_panel.set_listening(adapter.name)
 
@@ -155,6 +171,8 @@ class MainWindow(QMainWindow):
 
         neighbor = result.lldp_neighbor
 
+        self.last_discovery_result = result
+
         self.discovery_panel.display_lldp_result(
             protocol=result.protocol,
             switch_name=neighbor.system_name,
@@ -200,3 +218,94 @@ class MainWindow(QMainWindow):
             self.discovery_panel.set_error(
                 "Discovery did not stop within 3 seconds."
             )
+
+    def create_current_report(self) -> str | None:
+        """Build a report from the selected adapter and latest result."""
+
+        adapter = self.adapter_panel.selected_adapter()
+
+        if adapter is None:
+            self.discovery_panel.set_error(
+                "No network adapter is selected."
+            )
+            return None
+
+        if self.last_discovery_result is None:
+            self.discovery_panel.set_error(
+                "No discovery result is available."
+            )
+            return None
+
+        return build_network_report(
+            adapter=adapter,
+            discovery_result=self.last_discovery_result,
+        )
+
+
+    def copy_results(self) -> None:
+        """Copy the current network report to the clipboard."""
+
+        report = self.create_current_report()
+
+        if report is None:
+            return
+
+        QApplication.clipboard().setText(report)
+
+        self.discovery_panel.status_value.setText(
+            "Results copied to clipboard."
+        )
+
+
+    def save_report(self) -> None:
+        """Save the current network report as a text file."""
+
+        report = self.create_current_report()
+
+        if report is None:
+            return
+
+        adapter = self.adapter_panel.selected_adapter()
+
+        adapter_name = "network"
+
+        if adapter is not None:
+            adapter_name = (
+                adapter.name
+                .replace(" ", "_")
+                .replace("/", "_")
+                .replace("\\", "_")
+            )
+
+        default_filename = (
+            f"BAS_Network_Report_"
+            f"{adapter_name}_"
+            f"{datetime.now():%Y%m%d_%H%M%S}.txt"
+        )
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Network Report",
+            default_filename,
+            "Text Files (*.txt);;All Files (*.*)",
+        )
+
+        if not filename:
+            return
+
+        try:
+            Path(filename).write_text(
+                report,
+                encoding="utf-8",
+            )
+        except OSError as error:
+            QMessageBox.critical(
+                self,
+                "Save Report Error",
+                str(error),
+            )
+            return
+
+        self.discovery_panel.status_value.setText(
+            f"Report saved to {filename}"
+        )
