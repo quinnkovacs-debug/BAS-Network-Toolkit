@@ -22,6 +22,14 @@ from PySide6.QtGui import QCloseEvent
 from src.reports.network_report import build_network_report
 from datetime import datetime
 
+import webbrowser
+
+from PySide6.QtCore import QThread
+
+from src.controllers.target_probe_worker import TargetProbeWorker
+from src.gui.target_panel import TargetPanel
+from src.network.target_probe import TargetProbeResult
+
 
 class MainWindow(QMainWindow):
     """Main BAS Network Toolkit window."""
@@ -32,9 +40,11 @@ class MainWindow(QMainWindow):
         self.discovery_thread: QThread | None = None
         self.discovery_worker: DiscoveryWorker | None = None
         self.last_discovery_result: DiscoveryResult | None = None
+        self.target_probe_thread: QThread | None = None
+        self.target_probe_worker: TargetProbeWorker | None = None
 
         self.setWindowTitle("BAS Network Toolkit")
-        self.resize(850, 500)
+        self.resize(950, 900)
 
         self.create_widgets()
         self.create_layout()
@@ -50,6 +60,7 @@ class MainWindow(QMainWindow):
 
         self.adapter_panel = AdapterPanel()
         self.discovery_panel = DiscoveryPanel()
+        self.target_panel = TargetPanel()
 
     def create_layout(self) -> None:
         """Arrange the main-window controls."""
@@ -61,6 +72,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.title_label)
         main_layout.addWidget(self.adapter_panel)
         main_layout.addWidget(self.discovery_panel)
+        main_layout.addWidget(self.target_panel)
         main_layout.addStretch()
 
         central_widget = QWidget()
@@ -85,6 +97,14 @@ class MainWindow(QMainWindow):
 
         self.discovery_panel.save_requested.connect(
             self.save_report
+        )
+
+        self.target_panel.scan_requested.connect(
+            self.start_target_probe
+        )
+
+        self.target_panel.open_web_requested.connect(
+            self.open_web_interface
         )
 
 
@@ -170,6 +190,11 @@ class MainWindow(QMainWindow):
             return
 
         neighbor = result.lldp_neighbor
+
+        if neighbor.management_address != "Not advertised":
+            self.target_panel.set_target(
+                neighbor.management_address
+            )
 
         self.last_discovery_result = result
 
@@ -309,3 +334,75 @@ class MainWindow(QMainWindow):
         self.discovery_panel.status_value.setText(
             f"Report saved to {filename}"
         )
+
+    def start_target_probe(self, target: str) -> None:
+        """Start ping and web-port testing for one target."""
+
+        if self.target_probe_thread is not None:
+            self.target_panel.set_error(
+                "A target test is already running."
+            )
+            return
+
+        self.target_panel.set_scanning()
+
+        self.target_probe_thread = QThread()
+        self.target_probe_worker = TargetProbeWorker(target)
+
+        self.target_probe_worker.moveToThread(
+            self.target_probe_thread
+        )
+
+        self.target_probe_thread.started.connect(
+            self.target_probe_worker.run
+        )
+
+        self.target_probe_worker.completed.connect(
+            self.handle_target_probe_result
+        )
+
+        self.target_probe_worker.failed.connect(
+            self.target_panel.set_error
+        )
+
+        self.target_probe_worker.finished.connect(
+            self.target_probe_thread.quit
+        )
+
+        self.target_probe_worker.finished.connect(
+            self.target_probe_worker.deleteLater
+        )
+
+        self.target_probe_thread.finished.connect(
+            self.target_probe_thread.deleteLater
+        )
+
+        self.target_probe_thread.finished.connect(
+            self.clear_target_probe_thread
+        )
+
+        self.target_probe_thread.start()
+
+    
+
+
+    def handle_target_probe_result(
+        self,
+        result: TargetProbeResult,
+    ) -> None:
+        """Display one target-probe result."""
+
+        self.target_panel.display_result(result)
+
+
+    def clear_target_probe_thread(self) -> None:
+        """Clear completed target-worker references."""
+
+        self.target_probe_thread = None
+        self.target_probe_worker = None
+
+
+    def open_web_interface(self, url: str) -> None:
+        """Open a detected web interface in the default browser."""
+
+        webbrowser.open(url)
