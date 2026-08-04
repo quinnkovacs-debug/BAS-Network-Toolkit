@@ -1,34 +1,32 @@
 """Main application window for the BAS Network Toolkit."""
 
 from pathlib import Path
-
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QLabel,
     QMainWindow,
+    QTabWidget,
     QMessageBox,
     QVBoxLayout,
     QWidget,
 )
-
 from src.gui.adapter_panel import AdapterPanel
 from src.gui.discovery_panel import DiscoveryPanel
 from PySide6.QtCore import QThread
-
 from src.controllers.discovery_worker import DiscoveryWorker
 from src.network.discovery_listener import DiscoveryResult
 from PySide6.QtGui import QCloseEvent
 from src.reports.network_report import build_network_report
 from datetime import datetime
-
 import webbrowser
-
 from PySide6.QtCore import QThread
-
 from src.controllers.target_probe_worker import TargetProbeWorker
 from src.gui.target_panel import TargetPanel
 from src.network.target_probe import TargetProbeResult
+from src.gui.quick_scan_panel import QuickScanPanel
+from ipaddress import IPv4Interface
+from src.controllers.subnet_scan_worker import SubnetScanWorker
 
 
 class MainWindow(QMainWindow):
@@ -42,9 +40,11 @@ class MainWindow(QMainWindow):
         self.last_discovery_result: DiscoveryResult | None = None
         self.target_probe_thread: QThread | None = None
         self.target_probe_worker: TargetProbeWorker | None = None
+        self.subnet_scan_thread: QThread | None = None
+        self.subnet_scan_worker: SubnetScanWorker | None = None
 
         self.setWindowTitle("BAS Network Toolkit")
-        self.resize(950, 900)
+        self.resize(1000, 750)
 
         self.create_widgets()
         self.create_layout()
@@ -61,19 +61,42 @@ class MainWindow(QMainWindow):
         self.adapter_panel = AdapterPanel()
         self.discovery_panel = DiscoveryPanel()
         self.target_panel = TargetPanel()
+        self.quick_scan_panel = QuickScanPanel()
 
     def create_layout(self) -> None:
         """Arrange the main-window controls."""
 
+        network_tab = QWidget()
+        network_layout = QVBoxLayout()
+        network_layout.setContentsMargins(20, 20, 20, 20)
+        network_layout.setSpacing(15)
+
+        network_layout.addWidget(self.adapter_panel)
+        network_layout.addWidget(self.discovery_panel)
+        network_layout.addWidget(self.target_panel)
+        network_layout.addStretch()
+
+        network_tab.setLayout(network_layout)
+
+        quick_scan_tab = QWidget()
+        quick_scan_layout = QVBoxLayout()
+        quick_scan_layout.setContentsMargins(20, 20, 20, 20)
+        quick_scan_layout.setSpacing(15)
+
+        quick_scan_layout.addWidget(self.quick_scan_panel)
+
+        quick_scan_tab.setLayout(quick_scan_layout)
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(network_tab, "Network Discovery")
+        self.tabs.addTab(quick_scan_tab, "Quick Scan")
+
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(25, 25, 25, 25)
+        main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(15)
 
         main_layout.addWidget(self.title_label)
-        main_layout.addWidget(self.adapter_panel)
-        main_layout.addWidget(self.discovery_panel)
-        main_layout.addWidget(self.target_panel)
-        main_layout.addStretch()
+        main_layout.addWidget(self.tabs)
 
         central_widget = QWidget()
         central_widget.setLayout(main_layout)
@@ -105,6 +128,14 @@ class MainWindow(QMainWindow):
 
         self.target_panel.open_web_requested.connect(
             self.open_web_interface
+        )
+
+        self.quick_scan_panel.scan_requested.connect(
+            self.start_subnet_scan
+        )
+
+        self.quick_scan_panel.stop_requested.connect(
+            self.stop_subnet_scan
         )
 
 
@@ -228,6 +259,20 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Stop active discovery cleanly before closing."""
+
+        if self.subnet_scan_worker is not None:
+            self.subnet_scan_worker.request_stop()
+
+        if self.subnet_scan_thread is not None:
+            self.subnet_scan_thread.quit()
+            if not self.subnet_scan_thread.wait(5000):
+                event.ignore()
+                QMessageBox.warning(
+                    self,
+                    "Scan Still Stopping",
+                    "The subnet scan is still stopping. Please try closing again.",
+                )
+                return
 
         if self.discovery_worker is None or self.discovery_thread is None:
             event.accept()
@@ -406,3 +451,145 @@ class MainWindow(QMainWindow):
         """Open a detected web interface in the default browser."""
 
         webbrowser.open(url)
+
+    def start_subnet_scan(self) -> None:
+        """Start scanning the selected adapter's local subnet."""
+
+        if self.subnet_scan_thread is not None:
+            self.quick_scan_panel.set_error(
+                "A subnet scan is already running."
+            )
+            return
+
+        adapter = self.adapter_panel.selected_adapter()
+
+        if adapter is None:
+            self.quick_scan_panel.set_error(
+                "No network adapter is selected."
+            )
+            return
+
+        if adapter.status.lower() != "up":
+            self.quick_scan_panel.set_error(
+                "The selected adapter is not connected."
+            )
+            return
+
+        if adapter.prefix_length is None:
+            self.quick_scan_panel.set_error(
+                "The selected adapter has no IPv4 prefix length."
+            )
+            return
+
+        if adapter.ipv4_address == "Not assigned":
+            self.quick_scan_panel.set_error(
+                "The selected adapter has no IPv4 address."
+            )
+            return
+
+        interface = IPv4Interface(
+            f"{adapter.ipv4_address}/{adapter.prefix_length}"
+        )
+
+        prefix_length = interface.network.prefixlen
+
+        if prefix_length < 23:
+            self.quick_scan_panel.set_error(
+                "Networks larger than /23 are not supported."
+            )
+            return
+
+        if prefix_length == 23:
+            answer = QMessageBox.question(
+                self,
+                "Confirm /23 Scan",
+                (
+                    f"{interface.network} contains "
+                    f"{interface.network.num_addresses - 2} usable addresses.\n\n"
+                    "Continue with the subnet scan?"
+                ),
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        total_hosts = interface.network.num_addresses - 2
+
+        self.quick_scan_panel.begin_scan(
+            network_description=str(interface.network),
+            total_hosts=total_hosts,
+        )
+
+        self.subnet_scan_thread = QThread()
+
+        self.subnet_scan_worker = SubnetScanWorker(
+            ipv4_address=adapter.ipv4_address,
+            prefix_length=adapter.prefix_length,
+            max_workers=32,
+        )
+
+        self.subnet_scan_worker.moveToThread(
+            self.subnet_scan_thread
+        )
+
+        self.subnet_scan_thread.started.connect(
+            self.subnet_scan_worker.run
+        )
+
+        self.subnet_scan_worker.host_found.connect(
+            self.quick_scan_panel.add_host
+        )
+
+        self.subnet_scan_worker.progress_changed.connect(
+            self.quick_scan_panel.update_progress
+        )
+
+        self.subnet_scan_worker.completed.connect(
+            self.quick_scan_panel.set_completed
+        )
+
+        self.subnet_scan_worker.cancelled.connect(
+            self.quick_scan_panel.set_cancelled
+        )
+
+        self.subnet_scan_worker.failed.connect(
+            self.quick_scan_panel.set_error
+        )
+
+        self.subnet_scan_worker.finished.connect(
+            self.subnet_scan_thread.quit
+        )
+
+        self.subnet_scan_worker.finished.connect(
+            self.subnet_scan_worker.deleteLater
+        )
+
+        self.subnet_scan_thread.finished.connect(
+            self.subnet_scan_thread.deleteLater
+        )
+
+        self.subnet_scan_thread.finished.connect(
+            self.clear_subnet_scan_thread
+        )
+
+        self.subnet_scan_thread.start()
+
+
+    def stop_subnet_scan(self) -> None:
+        """Request cancellation of the active subnet scan."""
+
+        if self.subnet_scan_worker is None:
+            return
+
+        self.quick_scan_panel.set_stopping()
+        self.subnet_scan_worker.request_stop()
+
+
+    def clear_subnet_scan_thread(self) -> None:
+        """Clear completed subnet-scan worker references."""
+
+        self.subnet_scan_thread = None
+        self.subnet_scan_worker = None
