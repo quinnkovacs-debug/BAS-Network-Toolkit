@@ -1,0 +1,16 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+
+# VS Code settings (optional)
+.vscode/
+
+# Build output
+build/
+dist/
+
+# PyInstaller
+*.spec
