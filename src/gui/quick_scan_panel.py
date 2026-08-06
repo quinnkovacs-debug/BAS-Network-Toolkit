@@ -131,7 +131,7 @@ class QuickScanPanel(QWidget):
         layout.addLayout(button_layout)
         layout.addLayout(status_layout)
         layout.addWidget(self.progress)
-        layout.addWidget(self.table)
+        layout.addWidget(self.table, 1)
 
         self.setLayout(layout)
 
