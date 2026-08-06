@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.network.subnet_scanner import SubnetHost
+from src.network.subnet_scanner import NetworkDevice
 
 
 class IpAddressItem(QTableWidgetItem):
@@ -65,10 +65,11 @@ class QuickScanPanel(QWidget):
 
         self.table = QTableWidget()
         self.table.setSortingEnabled(True)
-        self.table.setColumnCount(4)
+        self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(
             [
                 "IP Address",
+                "MAC Address",
                 "Ping",
                 "HTTP",
                 "HTTPS",
@@ -102,6 +103,10 @@ class QuickScanPanel(QWidget):
         )
         header.setSectionResizeMode(
             3,
+            QHeaderView.ResizeMode.ResizeToContents,
+        )
+        header.setSectionResizeMode(
+            4,
             QHeaderView.ResizeMode.ResizeToContents,
         )
 
@@ -179,7 +184,7 @@ class QuickScanPanel(QWidget):
             f"{hosts_found} devices found"
         )
 
-    def add_host(self, host: SubnetHost) -> None:
+    def add_host(self, host: NetworkDevice) -> None:
         """Add one responsive host to the results table."""
 
         sorting_was_enabled = self.table.isSortingEnabled()
@@ -189,14 +194,19 @@ class QuickScanPanel(QWidget):
         self.table.insertRow(row)
 
         ip_item = IpAddressItem(host.ip_address)
+        mac_item = QTableWidgetItem(
+            host.mac_address if host.mac_address else "—"
+        )
         ping_item = self.create_status_item(host.ping)
         http_item = self.create_status_item(host.http)
-        https_item = self.create_status_item(host.https)
+        https_item = self.create_status_item(host.https)    
 
         self.table.setItem(row, 0, ip_item)
-        self.table.setItem(row, 1, ping_item)
-        self.table.setItem(row, 2, http_item)
-        self.table.setItem(row, 3, https_item)
+        self.table.setItem(row, 1, mac_item)
+        self.table.setItem(row, 2, ping_item)
+        self.table.setItem(row, 3, http_item)
+        self.table.setItem(row, 4, https_item)
+
 
         self.table.setSortingEnabled(sorting_was_enabled)
         

@@ -4,7 +4,8 @@ import threading
 
 from PySide6.QtCore import QObject, Signal, Slot
 
-from src.network.subnet_scanner import SubnetHost, scan_subnet
+from src.models.network_device import NetworkDevice
+from src.network.subnet_scanner import scan_subnet
 
 
 class SubnetScanWorker(QObject):

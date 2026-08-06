@@ -2,24 +2,15 @@
 
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from src.models.network_device import NetworkDevice
 from ipaddress import IPv4Interface
 import socket
 import subprocess
 import threading
+from src.network.arp_lookup import lookup_mac_address
 
 
 ProgressCallback = Callable[[int, int, int], None]
-
-
-@dataclass(slots=True)
-class SubnetHost:
-    """Information about one discovered host."""
-
-    ip_address: str
-    ping: bool = False
-    http: bool = False
-    https: bool = False
 
 
 def tcp_port_open(
@@ -71,15 +62,26 @@ def validate_network(interface: IPv4Interface) -> None:
         )
 
 
-def scan_host(address: str) -> SubnetHost:
-    """Test one address for ping, HTTP, and HTTPS."""
+def scan_host(
+    address: str,
+    local_interface_ip: str,
+) -> NetworkDevice:
+    """Test one address and collect its local MAC address."""
 
-    return SubnetHost(
+    device = NetworkDevice(
         ip_address=address,
         ping=ping_host(address),
         http=tcp_port_open(address, 80),
         https=tcp_port_open(address, 443),
     )
+
+    if device.ping or device.http or device.https:
+        device.mac_address = lookup_mac_address(
+            target_ip=address,
+            local_interface_ip=local_interface_ip,
+        )
+
+    return device
 
 
 def scan_subnet(
@@ -88,7 +90,7 @@ def scan_subnet(
     stop_event: threading.Event | None = None,
     progress_callback: ProgressCallback | None = None,
     max_workers: int = 32,
-) -> Iterator[SubnetHost]:
+) -> Iterator[NetworkDevice]:
     """Yield responsive hosts from a local IPv4 subnet.
 
     Args:
@@ -129,14 +131,18 @@ def scan_subnet(
         thread_name_prefix="subnet-scan",
     )
 
-    futures: dict[Future[SubnetHost], str] = {}
+    futures: dict[Future[NetworkDevice], str] = {}
 
     try:
         for address in addresses:
             if stop_event.is_set():
                 break
 
-            future = executor.submit(scan_host, address)
+            future = executor.submit(
+            scan_host,
+            address,
+            ipv4_address,
+            )
             futures[future] = address
 
         for future in as_completed(futures):
