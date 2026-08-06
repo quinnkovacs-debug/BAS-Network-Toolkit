@@ -44,7 +44,7 @@ class MainWindow(QMainWindow):
         self.subnet_scan_worker: SubnetScanWorker | None = None
 
         self.setWindowTitle("BAS Network Toolkit")
-        self.resize(1000, 750)
+        self.resize(1400, 850)
 
         self.create_widgets()
         self.create_layout()
@@ -64,8 +64,9 @@ class MainWindow(QMainWindow):
         self.quick_scan_panel = QuickScanPanel()
 
     def create_layout(self) -> None:
-        """Arrange the main-window controls."""
+        """Arrange the application into task-specific tabs."""
 
+        # Network Discovery tab
         network_tab = QWidget()
         network_layout = QVBoxLayout()
         network_layout.setContentsMargins(20, 20, 20, 20)
@@ -73,24 +74,38 @@ class MainWindow(QMainWindow):
 
         network_layout.addWidget(self.adapter_panel)
         network_layout.addWidget(self.discovery_panel)
-        network_layout.addWidget(self.target_panel)
         network_layout.addStretch()
 
         network_tab.setLayout(network_layout)
 
+        # Quick Scan tab
         quick_scan_tab = QWidget()
         quick_scan_layout = QVBoxLayout()
-        quick_scan_layout.setContentsMargins(20, 20, 20, 20)
-        quick_scan_layout.setSpacing(15)
+        quick_scan_layout.setContentsMargins(0, 0, 0, 0)
+        quick_scan_layout.setSpacing(0)
 
         quick_scan_layout.addWidget(self.quick_scan_panel)
 
         quick_scan_tab.setLayout(quick_scan_layout)
 
+        # Target Tools tab
+        target_tools_tab = QWidget()
+        target_tools_layout = QVBoxLayout()
+        target_tools_layout.setContentsMargins(20, 20, 20, 20)
+        target_tools_layout.setSpacing(15)
+
+        target_tools_layout.addWidget(self.target_panel)
+        target_tools_layout.addStretch()
+
+        target_tools_tab.setLayout(target_tools_layout)
+
+        # Main tab widget
         self.tabs = QTabWidget()
         self.tabs.addTab(network_tab, "Network Discovery")
         self.tabs.addTab(quick_scan_tab, "Quick Scan")
+        self.tabs.addTab(target_tools_tab, "Target Tools")
 
+        # Main application layout
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(15)
