@@ -1,32 +1,35 @@
 """Main application window for the BAS Network Toolkit."""
 
 from pathlib import Path
+from datetime import datetime
+from ipaddress import IPv4Interface
+import webbrowser
+
+from PySide6.QtCore import QThread
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QLabel,
     QMainWindow,
-    QTabWidget,
     QMessageBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
+
+from src.controllers.discovery_worker import DiscoveryWorker
+from src.controllers.snmp_correlation_worker import SnmpCorrelationWorker
+from src.controllers.subnet_scan_worker import SubnetScanWorker
+from src.controllers.target_probe_worker import TargetProbeWorker
 from src.gui.adapter_panel import AdapterPanel
 from src.gui.discovery_panel import DiscoveryPanel
-from PySide6.QtCore import QThread
-from src.controllers.discovery_worker import DiscoveryWorker
-from src.network.discovery_listener import DiscoveryResult
-from PySide6.QtGui import QCloseEvent
-from src.reports.network_report import build_network_report
-from datetime import datetime
-import webbrowser
-from PySide6.QtCore import QThread
-from src.controllers.target_probe_worker import TargetProbeWorker
-from src.gui.target_panel import TargetPanel
-from src.network.target_probe import TargetProbeResult
 from src.gui.quick_scan_panel import QuickScanPanel
-from ipaddress import IPv4Interface
-from src.controllers.subnet_scan_worker import SubnetScanWorker
+from src.gui.target_panel import TargetPanel
+from src.models.network_device import NetworkDevice
+from src.network.discovery_listener import DiscoveryResult
+from src.network.target_probe import TargetProbeResult
+from src.reports.network_report import build_network_report
 
 
 class MainWindow(QMainWindow):
@@ -42,6 +45,8 @@ class MainWindow(QMainWindow):
         self.target_probe_worker: TargetProbeWorker | None = None
         self.subnet_scan_thread: QThread | None = None
         self.subnet_scan_worker: SubnetScanWorker | None = None
+        self.snmp_correlation_thread: QThread | None = None
+        self.snmp_correlation_worker: SnmpCorrelationWorker | None = None
 
         self.setWindowTitle("BAS Network Toolkit")
         self.resize(1400, 850)
@@ -563,7 +568,7 @@ class MainWindow(QMainWindow):
         )
 
         self.subnet_scan_worker.completed.connect(
-            self.quick_scan_panel.set_completed
+            self.handle_subnet_scan_completed
         )
 
         self.subnet_scan_worker.cancelled.connect(
@@ -608,3 +613,153 @@ class MainWindow(QMainWindow):
 
         self.subnet_scan_thread = None
         self.subnet_scan_worker = None
+
+    def handle_subnet_scan_completed(
+        self,
+        devices: list[NetworkDevice],
+    ) -> None:
+        """Finish Quick Scan or begin optional SNMP correlation."""
+
+        if not self.quick_scan_panel.snmp_enabled.isChecked():
+            self.quick_scan_panel.set_completed()
+            return
+
+        switch_ip = self.quick_scan_panel.switch_ip_input.text().strip()
+        community = self.quick_scan_panel.community_input.text().strip()
+        vlan_id = self.quick_scan_panel.vlan_input.value()
+
+        if not switch_ip:
+            self.quick_scan_panel.snmp_status_label.setText(
+                "SNMP skipped: Switch IP is required."
+            )
+            self.quick_scan_panel.set_completed()
+            return
+
+        if not community:
+            self.quick_scan_panel.snmp_status_label.setText(
+                "SNMP skipped: Community string is required."
+            )
+            self.quick_scan_panel.set_completed()
+            return
+
+        try:
+            community.encode("latin-1")
+        except UnicodeEncodeError:
+            self.quick_scan_panel.snmp_status_label.setText(
+                "SNMP skipped: Community contains unsupported characters."
+            )
+            self.quick_scan_panel.set_completed()
+            return
+
+        self.start_snmp_correlation(
+            devices=devices,
+            switch_ip=switch_ip,
+            community=community,
+            vlan_id=vlan_id,
+        )
+
+    def start_snmp_correlation(
+        self,
+        devices: list[NetworkDevice],
+        switch_ip: str,
+        community: str,
+        vlan_id: int,
+    ) -> None:
+        """Start SNMP MAC-to-switch-port correlation."""
+
+        if self.snmp_correlation_thread is not None:
+            self.quick_scan_panel.snmp_status_label.setText(
+                "SNMP correlation is already running."
+            )
+            return
+
+        self.quick_scan_panel.snmp_status_label.setText(
+            "Querying switch MAC table..."
+        )
+
+        self.snmp_correlation_thread = QThread()
+
+        self.snmp_correlation_worker = SnmpCorrelationWorker(
+            devices=devices,
+            switch_ip=switch_ip,
+            community=community,
+            vlan_id=vlan_id,
+        )
+
+        self.snmp_correlation_worker.moveToThread(
+            self.snmp_correlation_thread
+        )
+
+        self.snmp_correlation_thread.started.connect(
+            self.snmp_correlation_worker.run
+        )
+
+        self.snmp_correlation_worker.device_enriched.connect(
+            self.handle_snmp_device_enriched
+        )
+
+        self.snmp_correlation_worker.completed.connect(
+            self.handle_snmp_correlation_completed
+        )
+
+        self.snmp_correlation_worker.failed.connect(
+            self.handle_snmp_correlation_failed
+        )
+
+        self.snmp_correlation_worker.finished.connect(
+            self.snmp_correlation_thread.quit
+        )
+
+        self.snmp_correlation_worker.finished.connect(
+            self.snmp_correlation_worker.deleteLater
+        )
+
+        self.snmp_correlation_thread.finished.connect(
+            self.snmp_correlation_thread.deleteLater
+        )
+
+        self.snmp_correlation_thread.finished.connect(
+            self.clear_snmp_correlation_thread
+        )
+
+        self.snmp_correlation_thread.start()
+
+    def handle_snmp_device_enriched(
+        self,
+        device: NetworkDevice,
+    ) -> None:
+        """Update Quick Scan with one correlated device."""
+
+        self.quick_scan_panel.update_device(device)
+
+    def handle_snmp_correlation_completed(
+        self,
+        matched: int,
+        total: int,
+    ) -> None:
+        """Handle successful SNMP correlation completion."""
+
+        self.quick_scan_panel.snmp_status_label.setText(
+            f"Correlation complete: {matched} of {total} devices matched."
+        )
+
+        self.quick_scan_panel.set_completed()
+
+    def handle_snmp_correlation_failed(
+        self,
+        message: str,
+    ) -> None:
+        """Handle an SNMP correlation failure."""
+
+        self.quick_scan_panel.snmp_status_label.setText(
+            f"SNMP correlation failed: {message}"
+        )
+
+        # The subnet scan itself was still successful.
+        self.quick_scan_panel.set_completed()
+
+    def clear_snmp_correlation_thread(self) -> None:
+        """Clear completed SNMP worker references."""
+
+        self.snmp_correlation_thread = None
+        self.snmp_correlation_worker = None

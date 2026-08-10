@@ -4,11 +4,15 @@ from ipaddress import ip_address
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
+    QFormLayout,
     QHeaderView,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QProgressBar,
     QPushButton,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -65,11 +69,14 @@ class QuickScanPanel(QWidget):
 
         self.table = QTableWidget()
         self.table.setSortingEnabled(True)
-        self.table.setColumnCount(5)
+        self.table.setColumnCount(8)
         self.table.setHorizontalHeaderLabels(
             [
                 "IP Address",
                 "MAC Address",
+                "Switch",
+                "Port",
+                "Vlan",
                 "Ping",
                 "HTTP",
                 "HTTPS",
@@ -89,29 +96,93 @@ class QuickScanPanel(QWidget):
         self.table.verticalHeader().setVisible(False)
 
         header = self.table.horizontalHeader()
+
         header.setSectionResizeMode(
             0,
             QHeaderView.ResizeMode.Stretch,
         )
+
         header.setSectionResizeMode(
             1,
             QHeaderView.ResizeMode.ResizeToContents,
         )
+
         header.setSectionResizeMode(
             2,
-            QHeaderView.ResizeMode.ResizeToContents,
+            QHeaderView.ResizeMode.Stretch,
         )
+
         header.setSectionResizeMode(
             3,
             QHeaderView.ResizeMode.ResizeToContents,
         )
+
         header.setSectionResizeMode(
             4,
             QHeaderView.ResizeMode.ResizeToContents,
         )
 
+        header.setSectionResizeMode(
+            5,
+            QHeaderView.ResizeMode.ResizeToContents,
+        )
+
+        header.setSectionResizeMode(
+            6,
+            QHeaderView.ResizeMode.ResizeToContents,
+        )
+
+        header.setSectionResizeMode(
+            7,
+            QHeaderView.ResizeMode.ResizeToContents,
+        )
+
+        self.snmp_enabled = QCheckBox("Enable SNMP switch correlation")
+
+        self.switch_ip_input = QLineEdit()
+        self.switch_ip_input.setPlaceholderText("Switch management IP")
+
+        self.community_input = QLineEdit()
+        self.community_input.setPlaceholderText("SNMPv2c community")
+        self.community_input.setEchoMode(
+            QLineEdit.EchoMode.Password
+        )
+
+        self.vlan_input = QSpinBox()
+        self.vlan_input.setRange(1, 4094)
+        self.vlan_input.setValue(1)
+
+        self.snmp_status_label = QLabel("SNMP correlation disabled")
+        self.set_snmp_controls_enabled(False)
+
     def create_layout(self) -> None:
         """Arrange the quick-scan controls."""
+
+        snmp_layout = QFormLayout()
+
+        snmp_layout.addRow(
+            self.snmp_enabled
+        )
+
+        snmp_layout.addRow(
+            "Switch IP:",
+            self.switch_ip_input,
+        )
+
+        snmp_layout.addRow(
+            "Community:",
+            self.community_input,
+        )
+
+        snmp_layout.addRow(
+            "VLAN:",
+            self.vlan_input,
+        )
+
+        snmp_layout.addRow(
+            "SNMP Status:",
+            self.snmp_status_label,
+        )
 
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.scan_button)
@@ -128,6 +199,7 @@ class QuickScanPanel(QWidget):
         layout.setSpacing(12)
 
         layout.addWidget(self.title)
+        layout.addLayout(snmp_layout)
         layout.addLayout(button_layout)
         layout.addLayout(status_layout)
         layout.addWidget(self.progress)
@@ -144,6 +216,29 @@ class QuickScanPanel(QWidget):
         self.stop_button.clicked.connect(
             self.stop_requested.emit
         )
+
+        self.snmp_enabled.toggled.connect(
+            self.set_snmp_controls_enabled
+        )
+
+    def set_snmp_controls_enabled(
+        self,
+        enabled: bool,
+    ) -> None:
+        """Enable or disable SNMP configuration controls."""
+
+        self.switch_ip_input.setEnabled(enabled)
+        self.community_input.setEnabled(enabled)
+        self.vlan_input.setEnabled(enabled)
+
+        if enabled:
+            self.snmp_status_label.setText(
+                "SNMP correlation enabled"
+            )
+        else:
+            self.snmp_status_label.setText(
+                "SNMP correlation disabled"
+            )
 
     def begin_scan(
         self,
@@ -194,19 +289,35 @@ class QuickScanPanel(QWidget):
         self.table.insertRow(row)
 
         ip_item = IpAddressItem(host.ip_address)
+
         mac_item = QTableWidgetItem(
             host.mac_address if host.mac_address else "—"
         )
+
+        switch_item = QTableWidgetItem(
+            host.switch_name if host.switch_name else "—"
+        )
+
+        port_item = QTableWidgetItem(
+            host.switch_port if host.switch_port else "—"
+        )
+
+        vlan_item = QTableWidgetItem(
+            host.vlan_id if host.vlan_id else "—"
+        )
+
         ping_item = self.create_status_item(host.ping)
         http_item = self.create_status_item(host.http)
-        https_item = self.create_status_item(host.https)    
+        https_item = self.create_status_item(host.https)
 
         self.table.setItem(row, 0, ip_item)
         self.table.setItem(row, 1, mac_item)
-        self.table.setItem(row, 2, ping_item)
-        self.table.setItem(row, 3, http_item)
-        self.table.setItem(row, 4, https_item)
-
+        self.table.setItem(row, 2, switch_item)
+        self.table.setItem(row, 3, port_item)
+        self.table.setItem(row, 4, vlan_item)
+        self.table.setItem(row, 5, ping_item)
+        self.table.setItem(row, 6, http_item)
+        self.table.setItem(row, 7, https_item)
 
         self.table.setSortingEnabled(sorting_was_enabled)
         
@@ -257,3 +368,67 @@ class QuickScanPanel(QWidget):
 
         self.table.setRowCount(0)
         self.progress.setValue(0)
+
+    def update_device(
+        self,
+        device: NetworkDevice,
+    ) -> None:
+        """Update an existing Quick Scan row with enriched device data."""
+
+        sorting_was_enabled = self.table.isSortingEnabled()
+        self.table.setSortingEnabled(False)
+
+        try:
+            for row in range(self.table.rowCount()):
+                ip_item = self.table.item(row, 0)
+
+                if ip_item is None:
+                    continue
+
+                if ip_item.text() != device.ip_address:
+                    continue
+
+                self.table.setItem(
+                    row,
+                    1,
+                    QTableWidgetItem(
+                        device.mac_address
+                        if device.mac_address
+                        else "—"
+                    ),
+                )
+
+                self.table.setItem(
+                    row,
+                    2,
+                    QTableWidgetItem(
+                        device.switch_name
+                        if device.switch_name
+                        else "—"
+                    ),
+                )
+
+                self.table.setItem(
+                    row,
+                    3,
+                    QTableWidgetItem(
+                        device.switch_port
+                        if device.switch_port
+                        else "—"
+                    ),
+                )
+
+                self.table.setItem(
+                    row,
+                    4,
+                    QTableWidgetItem(
+                        device.vlan_id
+                        if device.vlan_id
+                        else "—"
+                    ),
+                )
+
+                break
+
+        finally:
+            self.table.setSortingEnabled(sorting_was_enabled)

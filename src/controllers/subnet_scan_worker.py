@@ -13,7 +13,7 @@ class SubnetScanWorker(QObject):
 
     host_found = Signal(object)
     progress_changed = Signal(int, int, int)
-    completed = Signal()
+    completed = Signal(object)
     cancelled = Signal()
     failed = Signal(str)
     finished = Signal()
@@ -30,6 +30,7 @@ class SubnetScanWorker(QObject):
         self.prefix_length = prefix_length
         self.max_workers = max_workers
         self.stop_event = threading.Event()
+        self.devices: list[NetworkDevice] = []
 
     @Slot()
     def run(self) -> None:
@@ -46,12 +47,13 @@ class SubnetScanWorker(QObject):
                 if self.stop_event.is_set():
                     break
 
+                self.devices.append(host)
                 self.host_found.emit(host)
 
             if self.stop_event.is_set():
                 self.cancelled.emit()
             else:
-                self.completed.emit()
+                self.completed.emit(list(self.devices))
 
         except Exception as error:
             self.failed.emit(str(error))
