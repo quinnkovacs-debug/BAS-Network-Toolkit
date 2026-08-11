@@ -69,17 +69,21 @@ class QuickScanPanel(QWidget):
 
         self.table = QTableWidget()
         self.table.setSortingEnabled(True)
-        self.table.setColumnCount(8)
+        self.table.setColumnCount(12)
         self.table.setHorizontalHeaderLabels(
             [
                 "IP Address",
                 "MAC Address",
+                "Manufacturer",
                 "Switch",
                 "Port",
                 "Vlan",
                 "Ping",
                 "HTTP",
                 "HTTPS",
+                "FOX",
+                "FOXS",
+                "Modbus",   
             ]
         )
 
@@ -134,6 +138,26 @@ class QuickScanPanel(QWidget):
 
         header.setSectionResizeMode(
             7,
+            QHeaderView.ResizeMode.ResizeToContents,
+        )
+
+        header.setSectionResizeMode(
+            8,
+            QHeaderView.ResizeMode.ResizeToContents,
+        )
+
+        header.setSectionResizeMode(
+            9,
+            QHeaderView.ResizeMode.ResizeToContents,
+        )
+
+        header.setSectionResizeMode(
+            10,
+            QHeaderView.ResizeMode.ResizeToContents,
+        )
+
+        header.setSectionResizeMode(
+            11,
             QHeaderView.ResizeMode.ResizeToContents,
         )
 
@@ -294,6 +318,10 @@ class QuickScanPanel(QWidget):
             host.mac_address if host.mac_address else "—"
         )
 
+        vendor_item = QTableWidgetItem(
+            host.vendor if host.vendor else "—"
+        )
+
         switch_item = QTableWidgetItem(
             host.switch_name if host.switch_name else "—"
         )
@@ -309,16 +337,30 @@ class QuickScanPanel(QWidget):
         ping_item = self.create_status_item(host.ping)
         http_item = self.create_status_item(host.http)
         https_item = self.create_status_item(host.https)
+        fox_item = self.create_status_item(
+            1911 in host.tcp_ports
+        )
+
+        foxs_item = self.create_status_item(
+            4911 in host.tcp_ports
+        )
+
+        modbus_item = self.create_status_item(
+            502 in host.tcp_ports
+        )
 
         self.table.setItem(row, 0, ip_item)
         self.table.setItem(row, 1, mac_item)
-        self.table.setItem(row, 2, switch_item)
-        self.table.setItem(row, 3, port_item)
-        self.table.setItem(row, 4, vlan_item)
-        self.table.setItem(row, 5, ping_item)
-        self.table.setItem(row, 6, http_item)
-        self.table.setItem(row, 7, https_item)
-
+        self.table.setItem(row, 2, vendor_item)
+        self.table.setItem(row, 3, switch_item)
+        self.table.setItem(row, 4, port_item)
+        self.table.setItem(row, 5, vlan_item)
+        self.table.setItem(row, 6, ping_item)
+        self.table.setItem(row, 7, http_item)
+        self.table.setItem(row, 8, https_item)
+        self.table.setItem(row, 9, fox_item)
+        self.table.setItem(row, 10, foxs_item)
+        self.table.setItem(row, 11, modbus_item)
         self.table.setSortingEnabled(sorting_was_enabled)
         
 
@@ -400,7 +442,7 @@ class QuickScanPanel(QWidget):
 
                 self.table.setItem(
                     row,
-                    2,
+                    3,
                     QTableWidgetItem(
                         device.switch_name
                         if device.switch_name
@@ -410,7 +452,7 @@ class QuickScanPanel(QWidget):
 
                 self.table.setItem(
                     row,
-                    3,
+                    4,
                     QTableWidgetItem(
                         device.switch_port
                         if device.switch_port
@@ -420,7 +462,7 @@ class QuickScanPanel(QWidget):
 
                 self.table.setItem(
                     row,
-                    4,
+                    5,
                     QTableWidgetItem(
                         device.vlan_id
                         if device.vlan_id

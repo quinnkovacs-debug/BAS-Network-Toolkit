@@ -8,7 +8,15 @@ import socket
 import subprocess
 import threading
 from src.network.arp_lookup import lookup_mac_address
+from src.network.oui_lookup import lookup_manufacturer
 
+BAS_TCP_PORTS = {
+    80: "HTTP",
+    443: "HTTPS",
+    502: "Modbus TCP",
+    1911: "Niagara FOX",
+    4911: "Niagara FOXS",
+}
 
 ProgressCallback = Callable[[int, int, int], None]
 
@@ -66,20 +74,33 @@ def scan_host(
     address: str,
     local_interface_ip: str,
 ) -> NetworkDevice:
-    """Test one address and collect its local MAC address."""
+    """Test one address for common network and BAS services."""
 
     device = NetworkDevice(
         ip_address=address,
         ping=ping_host(address),
-        http=tcp_port_open(address, 80),
-        https=tcp_port_open(address, 443),
     )
 
-    if device.ping or device.http or device.https:
+    for port in BAS_TCP_PORTS:
+        if tcp_port_open(address, port):
+            device.tcp_ports.add(port)
+
+    device.http = 80 in device.tcp_ports
+    device.https = 443 in device.tcp_ports
+
+    if (
+        device.ping
+        or device.tcp_ports
+    ):
         device.mac_address = lookup_mac_address(
             target_ip=address,
             local_interface_ip=local_interface_ip,
         )
+
+        if device.mac_address:
+            device.vendor = lookup_manufacturer(
+                device.mac_address
+            )
 
     return device
 
@@ -164,7 +185,7 @@ def scan_subnet(
                     )
                 continue
 
-            if result.ping or result.http or result.https:
+            if result.ping or result.tcp_ports:
                 hosts_found += 1
                 yield result
 

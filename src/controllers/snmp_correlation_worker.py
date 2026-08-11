@@ -72,8 +72,8 @@ class SnmpCorrelationWorker(QObject):
         identity = await query_identity(
             host=self.switch_ip,
             community=self.community,
-            timeout=6.0,
-            retries=2,
+            timeout=10.0,
+            retries=3,
         )
 
         switch_name = identity.get(
@@ -85,8 +85,8 @@ class SnmpCorrelationWorker(QObject):
             host=self.switch_ip,
             community=self.community,
             vlan_id=self.vlan_id,
-            timeout=6.0,
-            retries=2,
+            timeout=10.0,
+            retries=3,
         )
 
         lookup = build_mac_port_lookup(
