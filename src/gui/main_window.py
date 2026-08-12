@@ -30,6 +30,7 @@ from src.models.network_device import NetworkDevice
 from src.network.discovery_listener import DiscoveryResult
 from src.network.target_probe import TargetProbeResult
 from src.reports.network_report import build_network_report
+from src.controllers.bacnet_discovery_worker import BacnetDiscoveryWorker
 
 
 class MainWindow(QMainWindow):
@@ -47,6 +48,8 @@ class MainWindow(QMainWindow):
         self.subnet_scan_worker: SubnetScanWorker | None = None
         self.snmp_correlation_thread: QThread | None = None
         self.snmp_correlation_worker: SnmpCorrelationWorker | None = None
+        self.bacnet_discovery_thread: QThread | None = None
+        self.bacnet_discovery_worker: BacnetDiscoveryWorker | None = None
 
         self.setWindowTitle("BAS Network Toolkit")
         self.resize(1400, 850)
@@ -400,6 +403,153 @@ class MainWindow(QMainWindow):
             f"Report saved to {filename}"
         )
 
+    def start_bacnet_discovery(
+        self,
+        devices: list[NetworkDevice],
+        local_interface_ip: str,
+        broadcast_ip: str,
+    ) -> None:
+        """Start BACnet/IP discovery across UDP 47808-47825."""
+
+        if self.bacnet_discovery_thread is not None:
+            self.quick_scan_panel.set_error(
+                "BACnet discovery is already running."
+            )
+            return
+
+        self.quick_scan_panel.status_label.setText(
+            "Discovering BACnet/IP devices..."
+        )
+
+        self.bacnet_discovery_thread = QThread()
+
+        self.bacnet_discovery_worker = BacnetDiscoveryWorker(
+            devices=devices,
+            local_interface_ip=local_interface_ip,
+            broadcast_ip=broadcast_ip,
+        )
+
+        self.bacnet_discovery_worker.moveToThread(
+            self.bacnet_discovery_thread
+        )
+
+        self.bacnet_discovery_thread.started.connect(
+            self.bacnet_discovery_worker.run
+        )
+
+        self.bacnet_discovery_worker.device_enriched.connect(
+            self.quick_scan_panel.update_device
+        )
+
+        self.bacnet_discovery_worker.completed.connect(
+            self.handle_bacnet_discovery_completed
+        )
+
+        self.bacnet_discovery_worker.failed.connect(
+            self.handle_bacnet_discovery_failed
+        )
+
+        self.bacnet_discovery_worker.finished.connect(
+            self.bacnet_discovery_thread.quit
+        )
+
+        self.bacnet_discovery_worker.finished.connect(
+            self.bacnet_discovery_worker.deleteLater
+        )
+
+        self.bacnet_discovery_thread.finished.connect(
+            self.bacnet_discovery_thread.deleteLater
+        )
+
+        self.bacnet_discovery_thread.finished.connect(
+            self.clear_bacnet_discovery_thread
+        )
+
+        self.bacnet_discovery_thread.start()
+
+    def handle_bacnet_discovery_completed(
+        self,
+        matched: int,
+        total: int,
+    ) -> None:
+        """Continue to SNMP correlation after BACnet discovery."""
+
+        if self.bacnet_discovery_worker is None:
+            self.quick_scan_panel.set_completed()
+            return
+
+        devices = list(
+            self.bacnet_discovery_worker.devices
+        )
+
+        self.quick_scan_panel.status_label.setText(
+            f"BACnet discovery complete: "
+            f"{matched} of {total} devices identified."
+        )
+
+        if not self.quick_scan_panel.snmp_enabled.isChecked():
+            self.quick_scan_panel.set_completed()
+            return
+
+        switch_ip = (
+            self.quick_scan_panel.switch_ip_input.text().strip()
+        )
+
+        community = (
+            self.quick_scan_panel.community_input.text().strip()
+        )
+
+        vlan_id = self.quick_scan_panel.vlan_input.value()
+
+        if not switch_ip:
+            self.quick_scan_panel.snmp_status_label.setText(
+                "SNMP skipped: Switch IP is required."
+            )
+            self.quick_scan_panel.set_completed()
+            return
+
+        if not community:
+            self.quick_scan_panel.snmp_status_label.setText(
+                "SNMP skipped: Community string is required."
+            )
+            self.quick_scan_panel.set_completed()
+            return
+
+        try:
+            community.encode("latin-1")
+        except UnicodeEncodeError:
+            self.quick_scan_panel.snmp_status_label.setText(
+                "SNMP skipped: Community contains unsupported characters."
+            )
+            self.quick_scan_panel.set_completed()
+            return
+
+        self.start_snmp_correlation(
+            devices=devices,
+            switch_ip=switch_ip,
+            community=community,
+            vlan_id=vlan_id,
+        )
+
+    def handle_bacnet_discovery_failed(
+        self,
+        message: str,
+    ) -> None:
+        """Handle BACnet discovery failure without crashing Quick Scan."""
+
+        self.quick_scan_panel.status_label.setText(
+            f"BACnet discovery failed: {message}"
+        )
+
+        self.quick_scan_panel.set_completed()
+
+
+    def clear_bacnet_discovery_thread(self) -> None:
+        """Clear completed BACnet worker references."""
+
+        self.bacnet_discovery_thread = None
+        self.bacnet_discovery_worker = None
+
     def start_target_probe(self, target: str) -> None:
         """Start ping and web-port testing for one target."""
 
@@ -618,44 +768,28 @@ class MainWindow(QMainWindow):
         self,
         devices: list[NetworkDevice],
     ) -> None:
-        """Finish Quick Scan or begin optional SNMP correlation."""
+        """Begin BACnet discovery after the base subnet scan."""
 
-        if not self.quick_scan_panel.snmp_enabled.isChecked():
+        adapter = self.adapter_panel.selected_adapter()
+
+        if adapter is None:
             self.quick_scan_panel.set_completed()
             return
 
-        switch_ip = self.quick_scan_panel.switch_ip_input.text().strip()
-        community = self.quick_scan_panel.community_input.text().strip()
-        vlan_id = self.quick_scan_panel.vlan_input.value()
-
-        if not switch_ip:
-            self.quick_scan_panel.snmp_status_label.setText(
-                "SNMP skipped: Switch IP is required."
-            )
+        if adapter.prefix_length is None:
             self.quick_scan_panel.set_completed()
             return
 
-        if not community:
-            self.quick_scan_panel.snmp_status_label.setText(
-                "SNMP skipped: Community string is required."
-            )
-            self.quick_scan_panel.set_completed()
-            return
+        interface = IPv4Interface(
+            f"{adapter.ipv4_address}/{adapter.prefix_length}"
+        )
 
-        try:
-            community.encode("latin-1")
-        except UnicodeEncodeError:
-            self.quick_scan_panel.snmp_status_label.setText(
-                "SNMP skipped: Community contains unsupported characters."
-            )
-            self.quick_scan_panel.set_completed()
-            return
-
-        self.start_snmp_correlation(
+        self.start_bacnet_discovery(
             devices=devices,
-            switch_ip=switch_ip,
-            community=community,
-            vlan_id=vlan_id,
+            local_interface_ip=adapter.ipv4_address,
+            broadcast_ip=str(
+                interface.network.broadcast_address
+            ),
         )
 
     def start_snmp_correlation(

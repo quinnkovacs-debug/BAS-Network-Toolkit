@@ -42,6 +42,7 @@ class QuickScanPanel(QWidget):
         super().__init__()
 
         self.create_widgets()
+        self.devices_by_ip: dict[str, NetworkDevice] = {}
         self.create_layout()
         self.connect_signals()
 
@@ -69,7 +70,7 @@ class QuickScanPanel(QWidget):
 
         self.table = QTableWidget()
         self.table.setSortingEnabled(True)
-        self.table.setColumnCount(12)
+        self.table.setColumnCount(13)
         self.table.setHorizontalHeaderLabels(
             [
                 "IP Address",
@@ -83,7 +84,8 @@ class QuickScanPanel(QWidget):
                 "HTTPS",
                 "FOX",
                 "FOXS",
-                "Modbus",   
+                "Modbus",
+                "Bacnet",   
             ]
         )
 
@@ -161,6 +163,11 @@ class QuickScanPanel(QWidget):
             QHeaderView.ResizeMode.ResizeToContents,
         )
 
+        header.setSectionResizeMode(
+            12,
+            QHeaderView.ResizeMode.ResizeToContents,
+        ) 
+
         self.snmp_enabled = QCheckBox("Enable SNMP switch correlation")
 
         self.switch_ip_input = QLineEdit()
@@ -178,6 +185,9 @@ class QuickScanPanel(QWidget):
 
         self.snmp_status_label = QLabel("SNMP correlation disabled")
         self.set_snmp_controls_enabled(False)
+        self.bas_only_checkbox = QCheckBox(
+            "Show BAS devices only"
+        )
 
     def create_layout(self) -> None:
         """Arrange the quick-scan controls."""
@@ -211,6 +221,7 @@ class QuickScanPanel(QWidget):
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.scan_button)
         button_layout.addWidget(self.stop_button)
+        button_layout.addWidget(self.bas_only_checkbox)
         button_layout.addStretch()
 
         status_layout = QHBoxLayout()
@@ -243,6 +254,10 @@ class QuickScanPanel(QWidget):
 
         self.snmp_enabled.toggled.connect(
             self.set_snmp_controls_enabled
+        )
+
+        self.bas_only_checkbox.toggled.connect(
+            self.apply_bas_filter
         )
 
     def set_snmp_controls_enabled(
@@ -308,6 +323,7 @@ class QuickScanPanel(QWidget):
 
         sorting_was_enabled = self.table.isSortingEnabled()
         self.table.setSortingEnabled(False)
+        self.devices_by_ip[host.ip_address] = host
 
         row = self.table.rowCount()
         self.table.insertRow(row)
@@ -349,6 +365,18 @@ class QuickScanPanel(QWidget):
             502 in host.tcp_ports
         )
 
+        bacnet_ports = sorted(
+            int(service.split(":", 1)[1])
+            for service in host.udp_services
+            if service.startswith("BACnet:")
+        )
+
+        bacnet_item = QTableWidgetItem(
+            ", ".join(str(port) for port in bacnet_ports)
+            if bacnet_ports
+            else "—"
+        )
+
         self.table.setItem(row, 0, ip_item)
         self.table.setItem(row, 1, mac_item)
         self.table.setItem(row, 2, vendor_item)
@@ -361,8 +389,10 @@ class QuickScanPanel(QWidget):
         self.table.setItem(row, 9, fox_item)
         self.table.setItem(row, 10, foxs_item)
         self.table.setItem(row, 11, modbus_item)
+        self.table.setItem(row, 12, bacnet_item)
         self.table.setSortingEnabled(sorting_was_enabled)
-        
+
+        self.apply_bas_filter()
 
     @staticmethod
     def create_status_item(available: bool) -> QTableWidgetItem:
@@ -410,6 +440,7 @@ class QuickScanPanel(QWidget):
 
         self.table.setRowCount(0)
         self.progress.setValue(0)
+        self.devices_by_ip.clear()
 
     def update_device(
         self,
@@ -417,6 +448,7 @@ class QuickScanPanel(QWidget):
     ) -> None:
         """Update an existing Quick Scan row with enriched device data."""
 
+        self.devices_by_ip[device.ip_address] = device
         sorting_was_enabled = self.table.isSortingEnabled()
         self.table.setSortingEnabled(False)
 
@@ -470,7 +502,57 @@ class QuickScanPanel(QWidget):
                     ),
                 )
 
+                bacnet_ports = sorted(
+                    int(service.split(":", 1)[1])
+                    for service in device.udp_services
+                    if service.startswith("BACnet:")
+                )
+
+                self.table.setItem(
+                    row,
+                    12,
+                    QTableWidgetItem(
+                        ", ".join(str(port) for port in bacnet_ports)
+                        if bacnet_ports
+                        else "—"
+                    ),
+                )
+
                 break
 
         finally:
             self.table.setSortingEnabled(sorting_was_enabled)
+
+        self.apply_bas_filter()
+
+    def apply_bas_filter(self) -> None:
+        """Show all devices or only devices classified as BAS."""
+
+        bas_only = self.bas_only_checkbox.isChecked()
+
+        for row in range(self.table.rowCount()):
+            ip_item = self.table.item(row, 0)
+
+            if ip_item is None:
+                continue
+
+            device = self.devices_by_ip.get(
+                ip_item.text()
+            )
+
+            if device is None:
+                self.table.setRowHidden(
+                    row,
+                    bas_only,
+                )
+                continue
+
+            hide_row = (
+                bas_only
+                and not device.is_bas_device
+            )
+
+            self.table.setRowHidden(
+                row,
+                hide_row,
+            )

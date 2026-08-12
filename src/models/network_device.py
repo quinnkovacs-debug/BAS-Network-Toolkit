@@ -40,3 +40,19 @@ class NetworkDevice:
             return f"http://{self.ip_address}"
 
         return None
+
+    @property
+    def is_bas_device(self) -> bool:
+        """Return True when the device shows evidence of a BAS service."""
+
+        has_bacnet = any(
+            service.startswith("BACnet:")
+            for service in self.udp_services
+        )
+
+        return (
+            502 in self.tcp_ports
+            or 1911 in self.tcp_ports
+            or 4911 in self.tcp_ports
+            or has_bacnet
+        )
