@@ -37,6 +37,8 @@ class QuickScanPanel(QWidget):
 
     scan_requested = Signal()
     stop_requested = Signal()
+    export_requested = Signal()
+    open_web_requested = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -188,6 +190,10 @@ class QuickScanPanel(QWidget):
         self.bas_only_checkbox = QCheckBox(
             "Show BAS devices only"
         )
+        self.export_button = QPushButton(
+            "Export CSV"
+        )
+        self.export_button.setEnabled(False)
 
     def create_layout(self) -> None:
         """Arrange the quick-scan controls."""
@@ -221,6 +227,7 @@ class QuickScanPanel(QWidget):
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.scan_button)
         button_layout.addWidget(self.stop_button)
+        button_layout.addWidget(self.export_button)
         button_layout.addWidget(self.bas_only_checkbox)
         button_layout.addStretch()
 
@@ -256,8 +263,16 @@ class QuickScanPanel(QWidget):
             self.set_snmp_controls_enabled
         )
 
+        self.export_button.clicked.connect(
+            self.export_requested.emit
+        )
+
         self.bas_only_checkbox.toggled.connect(
             self.apply_bas_filter
+        )
+
+        self.table.cellDoubleClicked.connect(
+            self.handle_table_double_click
         )
 
     def set_snmp_controls_enabled(
@@ -301,6 +316,7 @@ class QuickScanPanel(QWidget):
 
         self.scan_button.setEnabled(False)
         self.stop_button.setEnabled(True)
+        self.export_button.setEnabled(False)
 
     def update_progress(
         self,
@@ -414,6 +430,9 @@ class QuickScanPanel(QWidget):
         self.status_label.setText("Scan completed.")
         self.scan_button.setEnabled(True)
         self.stop_button.setEnabled(False)
+        self.export_button.setEnabled(
+            bool(self.devices_by_ip)
+        )
 
     def set_stopping(self) -> None:
         """Show that cancellation was requested."""
@@ -427,6 +446,9 @@ class QuickScanPanel(QWidget):
         self.status_label.setText("Scan stopped.")
         self.scan_button.setEnabled(True)
         self.stop_button.setEnabled(False)
+        self.export_button.setEnabled(
+            bool(self.devices_by_ip)
+        )
 
     def set_error(self, message: str) -> None:
         """Display a scan error."""
@@ -556,3 +578,51 @@ class QuickScanPanel(QWidget):
                 row,
                 hide_row,
             )
+
+    def devices_for_export(self) -> list[NetworkDevice]:
+        """Return devices matching the current display filter."""
+
+        devices = list(
+            self.devices_by_ip.values()
+        )
+
+        if self.bas_only_checkbox.isChecked():
+            devices = [
+                device
+                for device in devices
+                if device.is_bas_device
+            ]
+
+        return sorted(
+            devices,
+            key=lambda device: tuple(
+                int(part)
+                for part in device.ip_address.split(".")
+            ),
+        )
+
+    def handle_table_double_click(
+        self,
+        row: int,
+        column: int,
+    ) -> None:
+        """Request the preferred web interface for a double-clicked device."""
+
+        ip_item = self.table.item(row, 0)
+
+        if ip_item is None:
+            return
+
+        device = self.devices_by_ip.get(
+            ip_item.text()
+        )
+
+        if device is None:
+            return
+
+        url = device.preferred_url
+
+        if url is None:
+            return
+
+        self.open_web_requested.emit(url)

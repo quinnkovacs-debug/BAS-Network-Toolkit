@@ -31,6 +31,9 @@ from src.network.discovery_listener import DiscoveryResult
 from src.network.target_probe import TargetProbeResult
 from src.reports.network_report import build_network_report
 from src.controllers.bacnet_discovery_worker import BacnetDiscoveryWorker
+from src.reports.quick_scan_export import (
+    export_quick_scan_csv,
+)
 
 
 class MainWindow(QMainWindow):
@@ -159,6 +162,14 @@ class MainWindow(QMainWindow):
 
         self.quick_scan_panel.stop_requested.connect(
             self.stop_subnet_scan
+        )
+
+        self.quick_scan_panel.export_requested.connect(
+            self.export_quick_scan
+        )
+
+        self.quick_scan_panel.open_web_requested.connect(
+            self.open_web_interface
         )
 
 
@@ -401,6 +412,62 @@ class MainWindow(QMainWindow):
 
         self.discovery_panel.status_value.setText(
             f"Report saved to {filename}"
+        )
+
+    def export_quick_scan(self) -> None:
+        """Save Quick Scan results as a CSV file."""
+
+        devices = (
+            self.quick_scan_panel.devices_for_export()
+        )
+
+        if not devices:
+            QMessageBox.information(
+                self,
+                "No Results",
+                "There are no Quick Scan results to export.",
+            )
+            return
+
+        timestamp = datetime.now().strftime(
+            "%Y%m%d_%H%M%S"
+        )
+
+        default_name = (
+            f"quick_scan_{timestamp}.csv"
+        )
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Quick Scan",
+            default_name,
+            "CSV Files (*.csv)",
+        )
+
+        if not file_path:
+            return
+
+        try:
+            export_quick_scan_csv(
+                file_path=file_path,
+                devices=devices,
+            )
+
+        except OSError as error:
+            QMessageBox.critical(
+                self,
+                "Export Failed",
+                f"Could not save the CSV file:\n\n{error}",
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Export Complete",
+            (
+                f"Exported {len(devices)} device(s) "
+                f"to:\n\n{file_path}"
+            ),
         )
 
     def start_bacnet_discovery(
@@ -897,3 +964,11 @@ class MainWindow(QMainWindow):
 
         self.snmp_correlation_thread = None
         self.snmp_correlation_worker = None
+
+    def open_web_interface(
+            self,
+            url: str,
+        ) -> None:
+            """Open a detected device web interface."""
+
+            webbrowser.open(url)
